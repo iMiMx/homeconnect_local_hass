@@ -81,11 +81,16 @@ def generate_hood_fan(appliance: HomeAppliance) -> HCFanEntityDescription:
     """Get Hood Fan description."""
     available_entities = [entity for entity in HOOD_FAN_ENTITIES if entity in appliance.entities]
     if available_entities:
-        return HCFanEntityDescription(key="fan_hood", entities=available_entities)
+        return HCFanEntityDescription(
+            key="fan_hood",
+            entity="BSH.Common.Root.ActiveProgram",
+            entities=available_entities,
+            default_program="Cooking.Common.Program.Hood.Venting",
+        )
     return None
 
 
-def generate_hob_zones(appliance: HomeAppliance) -> HCFanEntityDescription:
+def generate_hob_zones(appliance: HomeAppliance) -> EntityDescriptions:
     """Get Oven status descriptions."""
     pattern = re.compile(r"^Cooking\.Hob\.Status\.Zone\.([0-9]*)\..*$")
     groups = get_groups_from_regex(appliance, pattern)
@@ -247,7 +252,7 @@ def generate_hob_zones(appliance: HomeAppliance) -> HCFanEntityDescription:
     return descriptions
 
 
-def generate_hood_light(appliance: HomeAppliance) -> HCFanEntityDescription:
+def generate_hood_light(appliance: HomeAppliance) -> HCLightEntityDescription:
     """Get Hood light descriptions."""
     if "Cooking.Hood.Setting.ColorTemperaturePercent" in appliance.entities:
         return HCLightEntityDescription(

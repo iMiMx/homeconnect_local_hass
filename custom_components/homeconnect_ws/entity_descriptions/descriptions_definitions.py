@@ -108,6 +108,7 @@ class HCFanEntityDescription(HCEntityDescription, FanEntityDescription, frozen_o
     """Description for Fan Entity."""
 
     available_access: tuple[Access] = (Access.READ_WRITE,)
+    default_program: str | None = None
 
 
 class EntityDescriptions(TypedDict):

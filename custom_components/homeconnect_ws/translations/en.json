@@ -355,7 +355,7 @@
           "laundrycare_washerdryer_program_spin_spin_spindrain": "Spin and Drain",
           "laundrycare_washerdryer_program_rinse_rinse_rinse": "Rinse",
           "laundrycare_washerdryer_program_sportfitness_sportfitness_sportfitness": "Sportswear",
-          "laundrycare_washerdryer_program_fastwashdry_wd45_wd45": "Wash & Dry '45",
+          "laundrycare_washerdryer_program_fastwashdry_wd45_wd45": "Wash & Dry 45'",
           "laundrycare_washerdryer_program_refreshwd_refresh_refresh": "Resfresh",
           "laundrycare_washerdryer_program_automatic30_auto30_auto30": "Automatic Soft",
           "laundrycare_washerdryer_program_automatic4060_auto40_auto40": "Auto 40",
@@ -925,7 +925,7 @@
           "laundrycare_washerdryer_program_spin_spin_spindrain": "Spin and Drain",
           "laundrycare_washerdryer_program_rinse_rinse_rinse": "Rinse",
           "laundrycare_washerdryer_program_sportfitness_sportfitness_sportfitness": "Sportswear",
-          "laundrycare_washerdryer_program_fastwashdry_wd45_wd45": "Wash & Dry '45",
+          "laundrycare_washerdryer_program_fastwashdry_wd45_wd45": "Wash & Dry 45'",
           "laundrycare_washerdryer_program_refreshwd_refresh_refresh": "Resfresh",
           "laundrycare_washerdryer_program_automatic30_auto30_auto30": "Automatic Soft",
           "laundrycare_washerdryer_program_automatic4060_auto40_auto40": "Auto 40",
@@ -1473,4 +1473,5 @@
   }
 
 }
+
 

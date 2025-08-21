@@ -10,52 +10,61 @@ from homeconnect_websocket.entities import Execution
 from .entity import HCEntity
 from .helpers import create_entities
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from homeassistant.core import HomeAssistant
+    from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
-    from homeconnect_websocket.entities import ActiveProgram, Command
-
-    from . import HCConfigEntry
-    from .entity_descriptions.descriptions_definitions import HCButtonEntityDescription
-
-PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001
-    config_entry: HCConfigEntry,
-    async_add_entites: AddEntitiesCallback,
+    hass: "HomeAssistant",
+    entry: "ConfigEntry",
+    async_add_entities: "AddEntitiesCallback",
 ) -> None:
-    """Set up button platform."""
-    entities = create_entities(
-        {"button": HCButton, "start_button": HCStartButton}, config_entry.runtime_data
-    )
-    async_add_entites(entities)
-
-
-class HCButton(HCEntity, ButtonEntity):
-    """Abort Button Entity."""
-
-    _entity: Command
-    entity_description: HCButtonEntityDescription
-
-    async def async_press(self) -> None:
-        await self._entity.set_value(True)
+    """Set up Home Connect Button entities."""
+    create_entities(hass, entry, async_add_entities, HCStartButton)
 
 
 class HCStartButton(HCEntity, ButtonEntity):
-    """Start Button Entity."""
+    """Start button for an active/pending programme."""
 
-    _entity: ActiveProgram
-    entity_description: HCButtonEntityDescription
+    _attr_should_poll = False
 
     @property
     def available(self) -> bool:
+        """Available if:
+        - device is available, and
+        - there is a selected programme with SELECT_AND_START, or
+        - a START_ONLY programme is pending selection (our patch)."""
         available = super().available
-        available &= self._appliance.selected_program is not None
-        if self._appliance.selected_program is not None:
-            available &= self._appliance.selected_program.execution == Execution.SELECT_AND_START
-        return available
+        if not available or not self._appliance:
+            return False
+
+        selected = self._appliance.selected_program
+        pending = getattr(self._appliance, "_pending_program", None)
+
+        if selected is not None and selected.execution == Execution.SELECT_AND_START:
+            return True
+
+        # Expose Start while a START_ONLY programme is pending
+        if pending is not None:
+            return True
+
+        return False
 
     async def async_press(self) -> None:
-        await self._appliance.selected_program.start()
+        """Start the programme."""
+        if not self._appliance:
+            return
+
+        # If we have a pending START_ONLY programme, start that and clear pending
+        pending = getattr(self._appliance, "_pending_program", None)
+        if pending is not None:
+            await pending.start()
+            self._appliance._pending_program = None  # type: ignore[attr-defined]
+            await self.coordinator.async_request_refresh()
+            return
+
+        # Otherwise, start the currently selected programme (SELECT_AND_START path)
+        if self._appliance.selected_program is not None:
+            await self._appliance.selected_program.start()

@@ -2,116 +2,95 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.core import callback
 from homeconnect_websocket.entities import Execution
 
 from .entity import HCEntity
 from .helpers import create_entities
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
+    from .appliance import HomeAppliance  # project-local helper
     from homeassistant.core import HomeAssistant
-    from homeassistant.helpers.device_registry import DeviceInfo
+    from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
-    from homeconnect_websocket import HomeAppliance
-    from homeconnect_websocket.entities import SelectedProgram
-
-    from . import HCConfigEntry
-    from .entity_descriptions.descriptions_definitions import HCSelectEntityDescription
-PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001
-    config_entry: HCConfigEntry,
-    async_add_entites: AddEntitiesCallback,
+    hass: "HomeAssistant",
+    entry: "ConfigEntry",
+    async_add_entities: "AddEntitiesCallback",
 ) -> None:
-    """Set up select platform."""
-    entities = create_entities(
-        {"select": HCSelect, "program": HCProgram},
-        config_entry.runtime_data,
-    )
-    async_add_entites(entities)
+    """Set up Home Connect Select entities."""
+    create_entities(hass, entry, async_add_entities, HCProgramSelect)
 
 
-class HCSelect(HCEntity, SelectEntity):
-    """Select Entity."""
+class HCProgramSelect(HCEntity, SelectEntity):
+    """Select entity for choosing a programme."""
 
-    entity_description: HCSelectEntityDescription
-    _rev_options: dict[str, str]
-
-    def __init__(
-        self,
-        entity_description: HCSelectEntityDescription,
-        appliance: HomeAppliance,
-        device_info: DeviceInfo,
-    ) -> None:
-        super().__init__(entity_description, appliance, device_info)
-
-        self._rev_options = {}
-        if entity_description.options:
-            self._attr_options = entity_description.options
-        elif self._entity.enum:
-            self._attr_options = []
-            if self.entity_description.has_state_translation:
-                for value in self._entity.enum.values():
-                    self._attr_options.append(str(value).lower())
-            else:
-                for value in self._entity.enum.values():
-                    self._attr_options.append(str(value))
-
-        if self.entity_description.has_state_translation and self._entity.enum:
-            for value in self._entity.enum.values():
-                self._rev_options[str(value).lower()] = value
-
-    @property
-    def current_option(self) -> str:
-        if self.entity_description.has_state_translation:
-            value = str(self._entity.value).lower()
-            if value in self._attr_options:
-                return value
-        value = str(self._entity.value)
-        if value in self._attr_options:
-            return value
-        return None
-
-    async def async_select_option(self, option: str) -> None:
-        if self._rev_options:
-            option = self._rev_options[option]
-        await self._entity.set_value(option)
-
-
-class HCProgram(HCSelect):
-    """Program select Entity."""
-
-    _entity: SelectedProgram
-
-    def __init__(
-        self,
-        entity_description: HCSelectEntityDescription,
-        appliance: HomeAppliance,
-        device_info: DeviceInfo,
-    ) -> None:
-        super().__init__(entity_description, appliance, device_info)
-        self._programs = entity_description.mapping
-        self._rev_programs = {value: key for key, value in self._programs.items()}
+    _attr_should_poll = False
 
     @property
     def options(self) -> list[str] | None:
-        return list(self._programs.values())
+        """Return list of available programmes (human readable names)."""
+        if not self._appliance or not self._appliance.programs:
+            return None
+        # `_programs` is a dict like { "BSH.Common.Program....": Program }
+        return list(self._appliance.rev_programs.keys())
 
     @property
-    def current_option(self) -> list[str] | None:
-        if self._appliance.selected_program:
-            if self._appliance.selected_program.name in self._programs:
-                return self._programs[self._appliance.selected_program.name]
-            return self._appliance.selected_program.name
-        return None
+    def current_option(self) -> str | None:
+        """Return the currently active/selected programme (readable name)."""
+        if not self._appliance:
+            return None
+        if self._appliance.selected_program is None:
+            return None
+        prog = self._appliance.selected_program
+        # Map back to friendly name
+        return self._appliance.programs.get(prog.name, prog.name) and self._appliance.rev_programs.get(
+            prog.name, None
+        )
 
     async def async_select_option(self, option: str) -> None:
-        selected_program = self._appliance.programs[self._rev_programs[option]]
+        """
+        Select a programme by its friendly name.
+
+        Behaviour:
+        - SELECT_ONLY           -> select() only
+        - SELECT_AND_START      -> select() (or device’s own flow) and keep Start button available
+        - START_ONLY (patched)  -> DO NOT auto-start; mark as pending and show Start button
+        """
+        if not self._appliance:
+            return
+
+        # Map the user-facing name back to the BSH id
+        program_bsh = self._appliance.rev_programs[option]
+        selected_program = self._appliance.programs[program_bsh]
+
+        # Ensure we have a place to store a pending programme
+        if not hasattr(self._appliance, "_pending_program"):
+            # `_pending_program` holds a Program object that is selected but not yet started
+            self._appliance._pending_program = None  # type: ignore[attr-defined]
+
         if selected_program.execution in (Execution.SELECT_ONLY, Execution.SELECT_AND_START):
+            # Normal flow: just select (device may expose/require a later start)
             await selected_program.select()
+            # Clear any previously pending start, since user made a fresh selection
+            self._appliance._pending_program = None  # type: ignore[attr-defined]
         elif selected_program.execution == Execution.START_ONLY:
-            await selected_program.start()
+            # Two-step UX: buffer selection, don’t start yet
+            # Some START_ONLY programmes don’t support select(); so we simply stash and refresh.
+            self._appliance._pending_program = selected_program  # type: ignore[attr-defined]
+            # Ask HA to refresh entities so Start button becomes available
+            await self.coordinator.async_request_refresh()
+        else:
+            # Fallback – play it safe and do not auto-start
+            self._appliance._pending_program = selected_program  # type: ignore[attr-defined]
+            await self.coordinator.async_request_refresh()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the appliance."""
+        self.async_write_ha_state()
